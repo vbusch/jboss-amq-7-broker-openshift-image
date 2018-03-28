@@ -15,6 +15,47 @@ JAVA_OPTS="$(adjust_java_options ${JAVA_OPTS})"
 #GC Option conflicts with the one already configured.
 JAVA_OPTS=$(echo $JAVA_OPTS | sed -e "s/-XX:+UseParallelOldGC/ /")
 
+function sslPartial() {
+    [ -n "$AMQ_KEYSTORE_TRUSTSTORE_DIR" -o -n "$AMQ_KEYSTORE" -o -n "$AMQ_TRUSTSTORE" -o -n "$AMQ_KEYSTORE_PASSWORD" -o -n "$AMQ_TRUSTSTORE_PASSWORD" ]
+}
+
+function sslEnabled() {
+    [ -n "$AMQ_KEYSTORE_TRUSTSTORE_DIR" -a -n "$AMQ_KEYSTORE" -a -n "$AMQ_TRUSTSTORE" -a -n "$AMQ_KEYSTORE_PASSWORD" -a -n "$AMQ_TRUSTSTORE_PASSWORD" ]
+}
+
+# Finds the environment variable  and returns its value if found.
+# Otherwise returns the default value if provided.
+#
+# Arguments:
+# $1 env variable name to check
+# $2 default value if environemnt variable was not set
+function find_env() {
+  var=${!1}
+  echo "${var:-$2}"
+}
+
+function configureSSL() {
+    sslDir=$(find_env "AMQ_KEYSTORE_TRUSTSTORE_DIR" "")
+    keyStoreFile=$(find_env "AMQ_KEYSTORE" "")
+    trustStoreFile=$(find_env "AMQ_TRUSTSTORE" "")
+  
+    if sslEnabled ; then
+        keyStorePassword=$(find_env "AMQ_KEYSTORE_PASSWORD" "")
+        trustStorePassword=$(find_env "AMQ_TRUSTSTORE_PASSWORD" "")
+
+        keyStorePath="$sslDir/$keyStoreFile"
+        trustStorePath="$sslDir/$trustStoreFile"
+
+        AMQ_ARGS="$AMQ_ARGS --ssl-key=$keyStorePath"
+        AMQ_ARGS="$AMQ_ARGS --ssl-key-password=$keyStorePassword"
+
+        AMQ_ARGS="$AMQ_ARGS --ssl-trust=$trustStorePath"
+        AMQ_ARGS="$AMQ_ARGS --ssl-trust-password=$trustStorePassword"
+    elif sslPartial ; then
+        log_warning "Partial ssl configuration, the ssl context WILL NOT be configured."
+    fi
+}
+
 function configure() {
     instanceDir=$1
 
@@ -63,7 +104,8 @@ function configure() {
         if [ "$AMQ_EXTRA_ARGS" ]; then
             AMQ_ARGS="$AMQ_ARGS $AMQ_EXTRA_ARGS"
         fi
-
+        
+        configureSSL
         echo "Creating Broker with args $AMQ_ARGS"
 
         $AMQ_HOME/bin/artemis create ${instanceDir} $AMQ_ARGS --java-options "$JAVA_OPTS"
