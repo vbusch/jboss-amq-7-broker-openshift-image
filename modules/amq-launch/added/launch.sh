@@ -56,6 +56,53 @@ function configureSSL() {
     fi
 }
 
+function updateAcceptors() {
+
+    instanceDir=$1	
+    echo "keystorepassword $keyStorePassword"
+    echo "keystore filepath: $keyStorePath"
+	
+    IFS=',' read -a protocols <<< $(find_env "AMQ_PROTOCOL" "openwire,amqp,stomp,mqtt,hornetq")
+    connectionsAllowed=$(find_env "AMQ_MAX_CONNECTIONS" "1000")
+
+    if [ "${#protocols[@]}" -ne "0" ]; then
+    acceptors=""
+    for protocol in ${protocols[@]}; do
+      case "${protocol}" in
+        "openwire")
+acceptors="${acceptors}            <acceptor name=\"artemis\">tcp://${BROKER_IP}:61616?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=CORE,AMQP,STOMP,HORNETQ,MQTT,OPENWIRE;useEpoll=true;amqpCredits=1000;amqpLowCredits=300;connectionsAllowed=${connectionsAllowed}</acceptor>\n"
+          if sslEnabled ; then
+    acceptors="${acceptors}            <acceptor name=\"artemis\">tcp://${BROKER_IP}:61617?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=CORE,AMQP,STOMP,HORNETQ,MQTT,OPENWIRE;useEpoll=true;amqpCredits=1000;amqpLowCredits=300;connectionsAllowed=${connectionsAllowed};sslEnabled=true;keyStorePath=${keyStorePath};keyStorePassword=${keyStorePassword}</acceptor>\n"
+          fi
+          ;;
+        "mqtt")
+acceptors="${acceptors}            <acceptor name=\"mqtt\">tcp://${BROKER_IP}:1883?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=MQTT;useEpoll=true;connectionsAllowed=${connectionsAllowed}</acceptor>\n"
+          if sslEnabled ; then
+acceptors="${acceptors}            <acceptor name=\"mqtt\">tcp://${BROKER_IP}:8883?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=MQTT;useEpoll=true;connectionsAllowed=${connectionsAllowed};sslEnabled=true;keyStorePath=${keyStorePath};keyStorePassword=${keyStorePassword}</acceptor>\n"
+          fi
+          ;;
+        "amqp")
+acceptors="${acceptors}            <acceptor name=\"amqp\">tcp://${BROKER_IP}:5672?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=AMQP;useEpoll=true;amqpCredits=1000;amqpMinCredits=300;connectionsAllowed=${connectionsAllowed}</acceptor>\n"      
+          if sslEnabled ; then
+    acceptors="${acceptors}            <acceptor name=\"amqp\">tcp://${BROKER_IP}:5671?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=AMQP;useEpoll=true;amqpCredits=1000;amqpMinCredits=300;connectionsAllowed=${connectionsAllowed};sslEnabled=true;keyStorePath=${keyStorePath};keyStorePassword=${keyStorePassword}</acceptor>\n"
+          fi
+          ;;
+        "stomp")
+acceptors="${acceptors}            <acceptor name=\"stomp\">tcp://${BROKER_IP}:61613?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=STOMP;useEpoll=true;connectionsAllowed=${connectionsAllowed}</acceptor>\n"
+          if sslEnabled ; then
+    acceptors="${acceptors}            <acceptor name=\"stomp\">tcp://${BROKER_IP}:61612?tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576;protocols=STOMP;useEpoll=true;connectionsAllowed=${connectionsAllowed};sslEnabled=true;keyStorePath=${keyStorePath};keyStorePassword=${keyStorePassword}</acceptor>\n"
+          fi
+          ;;
+        "hornetq")
+acceptors="${acceptors}            <acceptor name=\"hornetq\">tcp://${BROKER_IP}:5445?protocols=HORNETQ,STOMP;useEpoll=true;connectionsAllowed=${connectionsAllowed}</acceptor>\n"
+          ;;
+      esac
+    done
+    sed -i -ne "/<acceptors>/ {p; i $acceptors" -e ":a; n; /<\/acceptors>/ {p; b}; ba}; p" ${instanceDir}/etc/broker.xml
+    sed -i "s/\${BROKER_IP}/${BROKER_IP}/g" ${instanceDir}/etc/broker.xml
+fi
+}
+
 function configure() {
     instanceDir=$1
 
@@ -110,8 +157,10 @@ function configure() {
 
         $AMQ_HOME/bin/artemis create ${instanceDir} $AMQ_ARGS --java-options "$JAVA_OPTS"
         $AMQ_HOME/bin/configure_jolokia_access.sh ${instanceDir}/etc/jolokia-access.xml
-        $AMQ_HOME/bin/configure_configmap.sh
+        updateAcceptors ${instanceDir}
+        $AMQ_HOME/bin/configure_configmap.sh ${instanceDir}
         $AMQ_HOME/bin/configure_s2i_files.sh ${instanceDir}
+	$AMQ_HOME/bin/configure_custom_config.sh ${instanceDir}
     fi
 }
 

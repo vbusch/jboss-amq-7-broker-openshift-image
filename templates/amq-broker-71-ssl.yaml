@@ -215,14 +215,6 @@ objects:
               tcpSocket:
                 port: 5672
               timeoutSeconds: 1
-            readinessProbe:
-              failureThreshold: 3
-              initialDelaySeconds: 10
-              periodSeconds: 10
-              successThreshold: 1
-              tcpSocket:
-                port: 5672
-              timeoutSeconds: 1
             name: ${APPLICATION_NAME}-amq
             ports:
             - containerPort: 8161
