@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Template
 labels:
-  template: amq-broker-71-basic
+  template: amq-broker-71-statefulset-clustered
   xpaas: 1.4.10
 message: A new messaging service has been created in your project. It will handle the protocol(s) "${AMQ_PROTOCOL}". The username/password for accessing the service is ${AMQ_USER}/${AMQ_PASSWORD}.
 metadata:
@@ -18,7 +18,7 @@ objects:
   kind: Service
   metadata:
     annotations:
-      description: The broker's console and Jolokia port.
+      description: The broker's Jolokia port.
     labels:
       application: ${APPLICATION_NAME}
     name: ${APPLICATION_NAME}-amq-jolokia
@@ -87,16 +87,16 @@ objects:
       targetPort: 61616
     selector:
       deploymentConfig: ${APPLICATION_NAME}-amq
-- apiVersion: v1
-  kind: DeploymentConfig
+- apiVersion: apps/v1beta1
+  kind: StatefulSet
   metadata:
     labels:
       application: ${APPLICATION_NAME}
     name: ${APPLICATION_NAME}-amq
   spec:
-    replicas: 1
     selector:
-      deploymentConfig: ${APPLICATION_NAME}-amq
+      matchLabels:
+        app: ${APPLICATION_NAME}-amq
     strategy:
       rollingParams:
         maxSurge: 0
@@ -106,6 +106,7 @@ objects:
         labels:
           application: ${APPLICATION_NAME}
           deploymentConfig: ${APPLICATION_NAME}-amq
+          app: ${APPLICATION_NAME}-amq
         name: ${APPLICATION_NAME}-amq
       spec:
         containers:
@@ -128,8 +129,23 @@ objects:
             value: ${AMQ_GLOBAL_MAX_SIZE}
           - name: AMQ_QUEUE_MEMORY_LIMIT
             value: ${AMQ_QUEUE_MEMORY_LIMIT}
-          image: amq-broker71-openshift
+          - name: AMQ_DATA_DIR
+            value: ${AMQ_DATA_DIR}
+          - name: AMQ_CLUSTERED
+            value: ${AMQ_CLUSTERED}
+          - name: AMQ_REPLICATED
+            value: ${AMQ_REPLICATED}            
+          - name: AMQ_CLUSTER_USER
+            value: ${AMQ_CLUSTER_USER}
+          - name: AMQ_CLUSTER_PASSWORD
+            value: ${AMQ_CLUSTER_PASSWORD}    
+          image: amq-broker71-openshift:1.0
           imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /opt/amq/bin/shutdownHook.sh          
           readinessProbe:
             exec:
               command:
@@ -153,7 +169,21 @@ objects:
           - containerPort: 61616
             name: artemis
             protocol: TCP
+          volumeMounts:
+          - name: ${APPLICATION_NAME}-amq-pvol
+            mountPath: /opt/amq/data
         terminationGracePeriodSeconds: 60
+    volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: ${APPLICATION_NAME}-amq-pvol
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 1Gi            
     triggers:
     - imageChangeParams:
         automatic: true
@@ -165,16 +195,6 @@ objects:
           namespace: ${IMAGE_STREAM_NAMESPACE}
       type: ImageChange
     - type: ConfigChange
-- apiVersion: v1
-  kind: Route
-  metadata:
-    labels:
-      application: ${APPLICATION_NAME}
-    name: console
-  spec:
-    to:
-      kind: Service
-      name: ${APPLICATION_NAME}-amq-jolokia    
 parameters:
 - description: The name for the application.
   displayName: Application Name
@@ -191,6 +211,11 @@ parameters:
 - description: Address names, separated by commas. These addresses will be automatically created when the broker starts. If left empty, addresses will be still created dynamically.
   displayName: Addresses
   name: AMQ_ADDRESSES
+- description: Size of the volume used by AMQ for persisting messages.
+  displayName: AMQ Volume Size
+  name: VOLUME_CAPACITY
+  value: 1Gi
+  required: true
 - description: User name for standard broker user. It is required for connecting to the broker. If left empty, it will be generated.
   displayName: AMQ Username
   from: user[a-zA-Z0-9]{3}
@@ -209,6 +234,22 @@ parameters:
   displayName: AMQ Name
   name: AMQ_NAME
   value: broker
+- description: Clustered
+  displayName: clustered
+  name: AMQ_CLUSTERED
+  value: 'true'
+- description: Replicated
+  displayName: replicated
+  name: AMQ_REPLICATED
+  value: 'true'  
+- description: Clustered user
+  displayName: cluster user
+  name: AMQ_CLUSTER_USER
+  value: amq
+- description: Clustered password
+  displayName: cluster password
+  name: AMQ_CLUSTER_PASSWORD
+  value: amq
 - description: "Maximum amount of memory which message data may consume (Default: Undefined, half of the system's memory)."
   displayName: AMQ Global Max Size
   name: AMQ_GLOBAL_MAX_SIZE

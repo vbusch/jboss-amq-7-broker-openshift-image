@@ -14,6 +14,8 @@ items:
       openshift.io/display-name: Red Hat AMQ Broker 7.1
       openshift.io/provider-display-name: Red Hat, Inc.
   spec:
+    lookupPolicy:
+      local: true  
     tags:
     - name: '1.0'
       annotations:
@@ -24,4 +26,4 @@ items:
         version: '1.0'
       from:
         kind: DockerImage
-        name: amq-broker-7/amq-broker71-openshift:latest
+        name: docker-registry.engineering.redhat.com/vbusch/amq-broker-71-openshift:latest

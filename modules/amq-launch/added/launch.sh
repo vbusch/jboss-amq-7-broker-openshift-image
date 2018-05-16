@@ -7,6 +7,8 @@ if [ "${SCRIPT_DEBUG}" = "true" ] ; then
     echo "Script debugging is enabled, allowing bash commands and their arguments to be printed as they are executed"
 fi
 
+SHUTDOWN_FILE="/opt/amq/data/shutdown"
+
 export BROKER_IP=`hostname -I | cut -f 1 -d ' '`
 CONFIG_TEMPLATES=/config_templates
 #Set the memory options
@@ -107,10 +109,10 @@ function configure() {
     
     export CONTAINER_ID=$HOSTNAME
     if [ ! -d ${instanceDir} -o "$AMQ_RESET_CONFIG" = "true" -o ! -f ${instanceDir}/bin/artemis ]; then
-        AMQ_ARGS="--role $AMQ_ROLE --name $AMQ_NAME --allow-anonymous --http-host $BROKER_IP --host 0.0.0.0 "
+        AMQ_ARGS="--role $AMQ_ROLE --name $AMQ_NAME --allow-anonymous --http-host $BROKER_IP --data /opt/amq/data "
         if [ -n "${AMQ_USER}" -a -n "${AMQ_PASSWORD}" ] ; then
             AMQ_ARGS="--user $AMQ_USER --password $AMQ_PASSWORD $AMQ_ARGS "
-        fi
+        fi     
         if [ -n "$AMQ_QUEUES" ]; then
             AMQ_ARGS="$AMQ_ARGS --queues $(removeWhiteSpace $AMQ_QUEUES)"
         fi
@@ -135,14 +137,16 @@ function configure() {
             AMQ_ARGS="$AMQ_ARGS --global-max-size $(removeWhiteSpace $GLOBAL_MAX_SIZE)"
         fi
         if [ "$AMQ_CLUSTERED" = "true" ]; then
-            echo "Broker will be clustered"
-            AMQ_ARGS="$AMQ_ARGS --clustered --cluster-user=$AMQ_CLUSTER_USER --cluster-password=$AMQ_CLUSTER_PASSWORD"
+            echo "Broker will be clustered $AMQ_REPLICATED"
+            AMQ_ARGS="$AMQ_ARGS --clustered --cluster-user=$AMQ_CLUSTER_USER --cluster-password=$AMQ_CLUSTER_PASSWORD --host localhost"
             if [ "$AMQ_REPLICATED" = "true" ]; then
                 AMQ_ARGS="$AMQ_ARGS --replicated"
             fi
             if [ "$AMQ_SLAVE" = "true" ]; then
                 AMQ_ARGS="$AMQ_ARGS --slave"
             fi
+        else
+			AMQ_ARGS="$AMQ_ARGS --host 0.0.0.0"
         fi
         if [ "$AMQ_RESET_CONFIG" = "true" ]; then
             AMQ_ARGS="$AMQ_ARGS --force"
@@ -158,7 +162,7 @@ function configure() {
         $AMQ_HOME/bin/configure_jolokia_access.sh ${instanceDir}/etc/jolokia-access.xml
         updateAcceptors ${instanceDir}
         $AMQ_HOME/bin/configure_s2i_files.sh ${instanceDir}
-	$AMQ_HOME/bin/configure_custom_config.sh ${instanceDir}
+	 $AMQ_HOME/bin/configure_custom_config.sh ${instanceDir}
     fi
 }
 
@@ -167,11 +171,28 @@ function removeWhiteSpace() {
 }
 
 function runServer() {
+	echo "Configuring Broker"
     instanceDir="${HOME}/${AMQ_NAME}"
 
     configure $instanceDir
-    echo "Running Broker"
-    exec ${instanceDir}/bin/artemis run
+    
+	if [ -f $SHUTDOWN_FILE ]; then
+		drain
+	else	
+    	echo "Running Broker"
+		exec ${instanceDir}/bin/artemis run
+	fi    
+
+}
+
+function drain() {
+	echo "Shutdown requested draining messages"
+    instanceDir="${HOME}/${AMQ_NAME}"
+    
+    echo "Running Broker - before sending shutdown"
+    exec ${instanceDir}/bin/artemis-service start
+    echo "Stopping Broker"
+    exec ${instanceDir}/bin/artemis stop    	
 }
 
 runServer
